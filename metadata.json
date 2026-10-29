@@ -1,0 +1,6 @@
+{
+  "name": "Lucro no Volante",
+  "description": "Aplicativo financeiro profissional para motoristas de aplicativo (Uber, 99) calcularem lucro real, custos operacionais, metas e relatórios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
