@@ -9,13 +9,15 @@ import {
   Database,
   Calendar,
   Lock,
+  Fuel,
+  Sparkles,
 } from 'lucide-react';
 import { runAllMandatoryTests, TestResultItem } from '../utils/testCases';
 
 export const TestAuditorView: React.FC = () => {
   const [testSuiteReport, setTestSuiteReport] = useState(() => runAllMandatoryTests());
   const [isRunning, setIsRunning] = useState<boolean>(false);
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'calculo' | 'persistencia' | 'datas' | 'seguranca'>('all');
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'calculo' | 'combustivel' | 'persistencia' | 'seguranca' | 'ia'>('all');
 
   const handleRerun = () => {
     setIsRunning(true);
@@ -35,12 +37,14 @@ export const TestAuditorView: React.FC = () => {
     switch (cat) {
       case 'calculo':
         return <Calculator className="w-3.5 h-3.5 text-blue-400" />;
+      case 'combustivel':
+        return <Fuel className="w-3.5 h-3.5 text-amber-400" />;
       case 'persistencia':
         return <Database className="w-3.5 h-3.5 text-emerald-400" />;
-      case 'datas':
-        return <Calendar className="w-3.5 h-3.5 text-amber-400" />;
       case 'seguranca':
         return <Lock className="w-3.5 h-3.5 text-purple-400" />;
+      case 'ia':
+        return <Sparkles className="w-3.5 h-3.5 text-emerald-400" />;
       default:
         return <Terminal className="w-3.5 h-3.5 text-slate-400" />;
     }
@@ -56,7 +60,7 @@ export const TestAuditorView: React.FC = () => {
             Central de Auditoria e Testes Obrigatórios
           </h1>
           <p className="text-xs md:text-sm text-slate-400 mt-0.5">
-            Verificação formal dos 20 cenários da especificação técnica, cálculos financeiros e regras do Radar 2.0.
+            Verificação formal das 20 suítes da especificação Lucro no Volante 3.0 (Memória Persistente & Combustível).
           </p>
         </div>
 
@@ -128,6 +132,16 @@ export const TestAuditorView: React.FC = () => {
           Cálculos Financeiros
         </button>
         <button
+          onClick={() => setSelectedFilter('combustivel')}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+            selectedFilter === 'combustivel'
+              ? 'bg-slate-800 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Combustível & Consumo
+        </button>
+        <button
           onClick={() => setSelectedFilter('persistencia')}
           className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
             selectedFilter === 'persistencia'
@@ -135,17 +149,7 @@ export const TestAuditorView: React.FC = () => {
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          Persistência & CRUD
-        </button>
-        <button
-          onClick={() => setSelectedFilter('datas')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
-            selectedFilter === 'datas'
-              ? 'bg-slate-800 text-white shadow-sm'
-              : 'text-slate-400 hover:text-white'
-          }`}
-        >
-          Datas & Calendário
+          Persistência & Backup
         </button>
         <button
           onClick={() => setSelectedFilter('seguranca')}
@@ -155,7 +159,17 @@ export const TestAuditorView: React.FC = () => {
               : 'text-slate-400 hover:text-white'
           }`}
         >
-          Segurança & Regras
+          Segurança & Chaves
+        </button>
+        <button
+          onClick={() => setSelectedFilter('ia')}
+          className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+            selectedFilter === 'ia'
+              ? 'bg-slate-800 text-white shadow-sm'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          Assistente IA
         </button>
       </div>
 

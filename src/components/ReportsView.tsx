@@ -4,15 +4,17 @@ import {
   Calendar,
   TrendingUp,
   TrendingDown,
-  ArrowRight,
   Trophy,
   AlertTriangle,
-  Award,
   ChevronLeft,
   ChevronRight,
   Info,
+  Fuel,
+  DollarSign,
+  Gauge,
+  Percent,
 } from 'lucide-react';
-import { DailyRecord } from '../types';
+import { DailyRecord, UserSettings } from '../types';
 import {
   aggregatePeriodSummary,
   formatCurrency,
@@ -20,20 +22,25 @@ import {
   formatNumber,
   formatPerKm,
   formatPercent,
-  getDayOfWeekBR,
   getDayOfWeekShortBR,
   getMondaySundayWeekRange,
   getCurrentMonthRange,
 } from '../utils/finance';
+import { getUserSettings } from '../services/storage';
 
 interface ReportsViewProps {
   records: DailyRecord[];
+  settings?: UserSettings;
 }
 
-export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
+export const ReportsView: React.FC<ReportsViewProps> = ({ records, settings }) => {
   const [reportType, setReportType] = useState<'weekly' | 'monthly'>('weekly');
   const [weekOffset, setWeekOffset] = useState<number>(0); // 0 = esta semana, -1 = semana anterior, etc.
   const [monthOffset, setMonthOffset] = useState<number>(0); // 0 = este mês, -1 = mês anterior, etc.
+
+  const activeSettings = useMemo(() => {
+    return settings || getUserSettings();
+  }, [settings]);
 
   // Cálculo das datas da Semana Alvo (Segunda a Domingo)
   const targetWeekRange = useMemo(() => {
@@ -62,14 +69,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
     );
   }, [records, prevWeekRange]);
 
-  // Resumos da Semana
+  // Resumos da Semana com Combustível Consumido
   const currentWeekSummary = useMemo(
-    () => aggregatePeriodSummary(currentWeekRecords),
-    [currentWeekRecords]
+    () => aggregatePeriodSummary(currentWeekRecords, activeSettings.vehicleConfig),
+    [currentWeekRecords, activeSettings.vehicleConfig]
   );
   const prevWeekSummary = useMemo(
-    () => aggregatePeriodSummary(prevWeekRecords),
-    [prevWeekRecords]
+    () => aggregatePeriodSummary(prevWeekRecords, activeSettings.vehicleConfig),
+    [prevWeekRecords, activeSettings.vehicleConfig]
   );
 
   // Cálculo das datas do Mês Alvo (Calendário Real)
@@ -99,28 +106,32 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
     );
   }, [records, prevMonthRange]);
 
-  // Resumos do Mês
+  // Resumos do Mês com Combustível Consumido
   const currentMonthSummary = useMemo(
-    () => aggregatePeriodSummary(currentMonthRecords),
-    [currentMonthRecords]
+    () => aggregatePeriodSummary(currentMonthRecords, activeSettings.vehicleConfig),
+    [currentMonthRecords, activeSettings.vehicleConfig]
   );
   const prevMonthSummary = useMemo(
-    () => aggregatePeriodSummary(prevMonthRecords),
-    [prevMonthRecords]
+    () => aggregatePeriodSummary(prevMonthRecords, activeSettings.vehicleConfig),
+    [prevMonthRecords, activeSettings.vehicleConfig]
   );
 
   // Seleciona resumo ativo conforme aba
   const activeSummary = reportType === 'weekly' ? currentWeekSummary : currentMonthSummary;
   const activePrevSummary = reportType === 'weekly' ? prevWeekSummary : prevMonthSummary;
-  const activeRecords = reportType === 'weekly' ? currentWeekRecords : currentMonthRecords;
   const activeRange = reportType === 'weekly' ? targetWeekRange : targetMonthRange;
 
-  // Variação percentual de lucro em relação ao período anterior
-  const profitDifference = activeSummary.netProfit - activePrevSummary.netProfit;
+  const operationalProfit = activeSummary.operationalNetProfit ?? activeSummary.netProfit;
+  const prevOperationalProfit = activePrevSummary.operationalNetProfit ?? activePrevSummary.netProfit;
+
+  // Variação percentual de lucro operacional em relação ao período anterior
+  const profitDifference = operationalProfit - prevOperationalProfit;
   const profitVariationPercent =
-    activePrevSummary.netProfit !== 0
-      ? Math.round((profitDifference / Math.abs(activePrevSummary.netProfit)) * 100)
+    prevOperationalProfit !== 0
+      ? Math.round((profitDifference / Math.abs(prevOperationalProfit)) * 100)
       : null;
+
+  const totalOtherCosts = activeSummary.totalRental + activeSummary.totalOther;
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
@@ -129,10 +140,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
         <div>
           <h1 className="text-xl md:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
             <FileBarChart className="w-6 h-6 text-emerald-400" />
-            Relatórios Financeiros Automatizados
+            Relatórios e Demonstrativos Financeiros
           </h1>
           <p className="text-xs md:text-sm text-slate-400 mt-0.5">
-            Análises aprofundadas com calendário estrito e comparativo de períodos anteriores.
+            Demonstração uniforme de custos operacionais, consumo real de combustível e rentabilidade.
           </p>
         </div>
 
@@ -146,7 +157,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Semanal (Seg - Dom)
+            Semanal
           </button>
           <button
             onClick={() => setReportType('monthly')}
@@ -156,26 +167,26 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
                 : 'text-slate-400 hover:text-white'
             }`}
           >
-            Mensal (Calendário)
+            Mensal
           </button>
         </div>
       </div>
 
-      {/* Navegador de Período */}
-      <div className="p-4 bg-slate-900/60 border border-slate-800/90 rounded-2xl flex items-center justify-between">
+      {/* Navegador Temporal do Período */}
+      <div className="flex items-center justify-between p-3.5 bg-slate-900/60 border border-slate-800 rounded-2xl">
         <button
           onClick={() => {
             if (reportType === 'weekly') setWeekOffset((prev) => prev - 1);
             else setMonthOffset((prev) => prev - 1);
           }}
-          className="p-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 transition flex items-center gap-1 text-xs"
+          className="p-2 rounded-xl bg-slate-950 border border-slate-700 text-slate-300 hover:text-white hover:border-slate-500 text-xs flex items-center gap-1 transition"
         >
           <ChevronLeft className="w-4 h-4" />
           <span className="hidden sm:inline">Período Anterior</span>
         </button>
 
         <div className="text-center">
-          <span className="text-xs font-medium text-slate-400 uppercase tracking-wider block">
+          <span className="text-[11px] uppercase tracking-wider font-semibold text-emerald-400 block">
             {reportType === 'weekly'
               ? weekOffset === 0
                 ? 'Esta Semana'
@@ -253,18 +264,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                <span className="text-xs text-slate-400 block">Lucro Líquido Real</span>
+                <span className="text-xs text-slate-400 block">Lucro Líquido Operacional</span>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span
                     className={`text-2xl font-extrabold font-mono tabular-nums ${
-                      activeSummary.netProfit < 0 ? 'text-rose-400' : 'text-emerald-400'
+                      operationalProfit < 0 ? 'text-rose-400' : 'text-emerald-400'
                     }`}
                   >
-                    {formatCurrency(activeSummary.netProfit)}
+                    {formatCurrency(operationalProfit)}
                   </span>
                   {activePrevSummary.recordCount > 0 && (
                     <span className="text-xs text-slate-500 line-through font-mono">
-                      {formatCurrency(activePrevSummary.netProfit)}
+                      {formatCurrency(prevOperationalProfit)}
                     </span>
                   )}
                 </div>
@@ -285,14 +296,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
               </div>
 
               <div className="p-4 bg-slate-950/60 rounded-xl border border-slate-800/80">
-                <span className="text-xs text-slate-400 block">Custos Operacionais</span>
+                <span className="text-xs text-slate-400 block">Custo Operacional Total</span>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span className="text-2xl font-extrabold font-mono tabular-nums text-rose-400">
-                    {formatCurrency(activeSummary.totalCosts)}
+                    {formatCurrency(activeSummary.operationalTotalCosts ?? activeSummary.totalCosts)}
                   </span>
                   {activePrevSummary.recordCount > 0 && (
                     <span className="text-xs text-slate-500 line-through font-mono">
-                      {formatCurrency(activePrevSummary.totalCosts)}
+                      {formatCurrency(activePrevSummary.operationalTotalCosts ?? activePrevSummary.totalCosts)}
                     </span>
                   )}
                 </div>
@@ -300,62 +311,118 @@ export const ReportsView: React.FC<ReportsViewProps> = ({ records }) => {
             </div>
           </div>
 
-          {/* Grid de 8 Indicadores Chave de Performance */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl">
-              <span className="text-[11px] text-slate-400 block">Média Lucro / Turno</span>
-              <span className="text-lg font-bold font-mono text-emerald-400 tabular-nums mt-0.5 block">
-                {formatCurrency(activeSummary.avgNetProfitPerWorkedDay)}
-              </span>
+          {/* PAINEL UNIFORME DE 10 INDICADORES OBRIGATÓRIOS (Especificação Lucro no Volante 3.0) */}
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 space-y-4">
+            <div className="border-b border-slate-800 pb-2">
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-emerald-400" />
+                Demonstrativo Operacional do Período (10 Indicadores Consolidados)
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Visão padronizada dos custos reais calculados a partir da quilometragem e dos abastecimentos de caixa.
+              </p>
             </div>
 
-            <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl">
-              <span className="text-[11px] text-slate-400 block">Média Faturamento / Turno</span>
-              <span className="text-lg font-bold font-mono text-white tabular-nums mt-0.5 block">
-                {formatCurrency(activeSummary.avgRevenuePerWorkedDay)}
-              </span>
-            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {/* 1. Receita Bruta */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">1. Receita Bruta</span>
+                <span className="text-base font-bold font-mono text-white tabular-nums mt-0.5 block">
+                  {formatCurrency(activeSummary.totalRevenue)}
+                </span>
+                <span className="text-[10px] text-slate-500">Total recebido</span>
+              </div>
 
-            <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl">
-              <span className="text-[11px] text-slate-400 block">Custo Médio / Km</span>
-              <span className="text-lg font-bold font-mono text-slate-200 tabular-nums mt-0.5 block">
-                {formatPerKm(activeSummary.avgCostPerKm)}
-              </span>
-            </div>
+              {/* 2. KM Rodados */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">2. KM Rodados</span>
+                <span className="text-base font-bold font-mono text-white tabular-nums mt-0.5 block">
+                  {formatNumber(activeSummary.totalKm)} km
+                </span>
+                <span className="text-[10px] text-slate-500">{activeSummary.workedDaysCount} dias rodados</span>
+              </div>
 
-            <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl">
-              <span className="text-[11px] text-slate-400 block">Lucro Médio / Km</span>
-              <span className="text-lg font-bold font-mono text-emerald-400 tabular-nums mt-0.5 block">
-                {formatPerKm(activeSummary.avgProfitPerKm)}
-              </span>
-            </div>
+              {/* 3. Combustível Consumido (L) */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">3. Combustível Consumido (L)</span>
+                <span className="text-base font-bold font-mono text-amber-300 tabular-nums mt-0.5 block">
+                  {formatNumber(activeSummary.consumedFuelLiters || 0, 1)} L
+                </span>
+                <span className="text-[10px] text-slate-500">Média {activeSettings.vehicleConfig.consumptionKmL} km/L</span>
+              </div>
 
-            <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl">
-              <span className="text-[11px] text-slate-400 block">Quilometragem Total</span>
-              <span className="text-lg font-bold font-mono text-white tabular-nums mt-0.5 block">
-                {formatNumber(activeSummary.totalKm)} km
-              </span>
-            </div>
+              {/* 4. Custo do Combustível Consumido (R$) */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">4. Custo Consumido (R$)</span>
+                <span className="text-base font-bold font-mono text-amber-400 tabular-nums mt-0.5 block">
+                  {formatCurrency(activeSummary.consumedFuelCost || 0)}
+                </span>
+                <span className="text-[10px] text-slate-500">{formatCurrency(activeSettings.vehicleConfig.fuelPricePerLiter)}/L</span>
+              </div>
 
-            <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl">
-              <span className="text-[11px] text-slate-400 block">Dias Trabalhados</span>
-              <span className="text-lg font-bold font-mono text-white tabular-nums mt-0.5 block">
-                {activeSummary.workedDaysCount} dias
-              </span>
-            </div>
+              {/* 5. Abastecimentos no Período (R$) */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">5. Abastecido no Posto</span>
+                <span className="text-base font-bold font-mono text-slate-300 tabular-nums mt-0.5 block">
+                  {formatCurrency(activeSummary.refillTotalCost || activeSummary.totalFuel)}
+                </span>
+                <span className="text-[10px] text-slate-500">Fluxo de Caixa</span>
+              </div>
 
-            <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl">
-              <span className="text-[11px] text-slate-400 block">Combustível Gasto</span>
-              <span className="text-lg font-bold font-mono text-amber-400 tabular-nums mt-0.5 block">
-                {formatCurrency(activeSummary.totalFuel)}
-              </span>
-            </div>
+              {/* 6. Outras Despesas Operacionais (R$) */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">6. Outras Despesas (R$)</span>
+                <span className="text-base font-bold font-mono text-rose-400 tabular-nums mt-0.5 block">
+                  {formatCurrency(totalOtherCosts)}
+                </span>
+                <span className="text-[10px] text-slate-500">Aluguel, pedágios, etc.</span>
+              </div>
 
-            <div className="p-3.5 bg-slate-900/60 border border-slate-800 rounded-xl">
-              <span className="text-[11px] text-slate-400 block">Margem Líquida</span>
-              <span className="text-lg font-bold font-mono text-emerald-400 tabular-nums mt-0.5 block">
-                {formatPercent(activeSummary.netMarginPercent)}
-              </span>
+              {/* 7. Lucro Líquido Operacional (R$) */}
+              <div className="p-3.5 bg-slate-950/70 border border-emerald-500/30 rounded-xl bg-gradient-to-br from-emerald-950/20 to-slate-950">
+                <span className="text-[11px] text-emerald-400 font-semibold block">7. Lucro Operacional (R$)</span>
+                <span
+                  className={`text-base font-extrabold font-mono tabular-nums mt-0.5 block ${
+                    operationalProfit < 0 ? 'text-rose-400' : 'text-emerald-400'
+                  }`}
+                >
+                  {formatCurrency(operationalProfit)}
+                </span>
+                <span className="text-[10px] text-slate-400">Receita − Custos Op.</span>
+              </div>
+
+              {/* 8. Custo por KM (R$/km) */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">8. Custo por KM</span>
+                <span className="text-base font-bold font-mono text-slate-200 tabular-nums mt-0.5 block">
+                  {formatPerKm(activeSummary.operationalCostPerKm ?? activeSummary.avgCostPerKm)}
+                </span>
+                <span className="text-[10px] text-slate-500">Operacional</span>
+              </div>
+
+              {/* 9. Lucro Líquido por KM (R$/km) */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">9. Lucro Líquido por KM</span>
+                <span
+                  className={`text-base font-bold font-mono tabular-nums mt-0.5 block ${
+                    (activeSummary.operationalProfitPerKm ?? activeSummary.avgProfitPerKm ?? 0) < 0
+                      ? 'text-rose-400'
+                      : 'text-emerald-400'
+                  }`}
+                >
+                  {formatPerKm(activeSummary.operationalProfitPerKm ?? activeSummary.avgProfitPerKm)}
+                </span>
+                <span className="text-[10px] text-slate-500">Por km rodado</span>
+              </div>
+
+              {/* 10. Margem Líquida (%) */}
+              <div className="p-3.5 bg-slate-950/70 border border-slate-800/90 rounded-xl">
+                <span className="text-[11px] text-slate-400 block">10. Margem Líquida (%)</span>
+                <span className="text-base font-bold font-mono text-emerald-400 tabular-nums mt-0.5 block">
+                  {formatPercent(activeSummary.operationalNetMarginPercent ?? activeSummary.netMarginPercent)}
+                </span>
+                <span className="text-[10px] text-slate-500">Eficiência percentual</span>
+              </div>
             </div>
           </div>
 

@@ -16,9 +16,11 @@ import {
   DollarSign,
   Smartphone,
   ExternalLink,
+  Fuel,
+  Gauge,
 } from 'lucide-react';
-import { PlatformType, UserSettings, VehicleType } from '../types';
-import { formatCurrency, parseBrazilianInput } from '../utils/finance';
+import { FuelType, PlatformType, UserSettings, VehicleType } from '../types';
+import { formatCurrency, formatPerKm, parseBrazilianInput } from '../utils/finance';
 import {
   clearAllData,
   exportAllDataJSON,
@@ -45,6 +47,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     String(settings.defaultRentalDaily || 70).replace('.', ',')
   );
 
+  // Configurações do Veículo & Combustível
+  const [vehicleName, setVehicleName] = useState<string>(
+    settings.vehicleConfig?.vehicleName || 'Chevrolet Onix 1.0'
+  );
+  const [fuelType, setFuelType] = useState<FuelType>(
+    settings.vehicleConfig?.fuelType || 'gasolina'
+  );
+  const [consumptionKmL, setConsumptionKmL] = useState<string>(
+    String(settings.vehicleConfig?.consumptionKmL || 10).replace('.', ',')
+  );
+  const [fuelPricePerLiter, setFuelPricePerLiter] = useState<string>(
+    String(settings.vehicleConfig?.fuelPricePerLiter || 5.89).replace('.', ',')
+  );
+
   const [notification, setNotification] = useState<string | null>(null);
   const [errorNotification, setErrorNotification] = useState<string | null>(null);
 
@@ -54,18 +70,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [showCommercialModal, setShowCommercialModal] = useState<boolean>(false);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState<boolean>(false);
 
+  // Custo por km do combustível calculado em tempo real para feedback
+  const previewCostPerKm = React.useMemo(() => {
+    const c = parseBrazilianInput(consumptionKmL);
+    const p = parseBrazilianInput(fuelPricePerLiter);
+    if (c <= 0 || p <= 0) return 0;
+    return p / c;
+  }, [consumptionKmL, fuelPricePerLiter]);
+
   // Salvar preferências
   const handleSavePreferences = (e: React.FormEvent) => {
     e.preventDefault();
+    const parsedConsumption = Math.max(0, parseBrazilianInput(consumptionKmL));
+    const parsedPrice = Math.max(0, parseBrazilianInput(fuelPricePerLiter));
+
     const updated = saveUserSettings({
       driverName: driverName.trim() || 'Motorista Parceiro',
       platform,
       vehicleType,
       defaultRentalDaily: Math.max(0, parseBrazilianInput(defaultRental)),
+      vehicleConfig: {
+        vehicleName: vehicleName.trim() || 'Meu Carro',
+        fuelType,
+        consumptionKmL: parsedConsumption > 0 ? parsedConsumption : 10,
+        fuelPricePerLiter: parsedPrice > 0 ? parsedPrice : 5.89,
+      },
     });
 
     onSettingsUpdated(updated);
-    setNotification('Preferências operacionais salvas com sucesso!');
+    setNotification('Configurações do veículo e preferências salvas com sucesso!');
     setTimeout(() => setNotification(null), 3000);
   };
 
@@ -216,6 +249,70 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <p className="text-[10px] text-slate-400 mt-1">
               Usado para preenchimento rápido com 1 clique na Calculadora Diária.
             </p>
+          </div>
+        </div>
+
+        {/* Bloco de Configuração de Combustível e Consumo */}
+        <div className="pt-4 mt-2 border-t border-slate-800 space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+              <Fuel className="w-3.5 h-3.5 text-amber-400" />
+              <span>Consumo e Combustível do Carro (Módulo Rentabilidade)</span>
+            </h4>
+            <span className="text-[11px] font-mono text-emerald-400 bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+              Custo Estimado: {previewCostPerKm > 0 ? formatPerKm(previewCostPerKm) : '—'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+            <div className="sm:col-span-1">
+              <label className="block text-slate-300 font-medium mb-1">Modelo do Carro</label>
+              <input
+                type="text"
+                value={vehicleName}
+                onChange={(e) => setVehicleName(e.target.value)}
+                placeholder="Ex: Onix 1.0"
+                className="w-full h-11 px-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="sm:col-span-1">
+              <label className="block text-slate-300 font-medium mb-1">Tipo de Combustível</label>
+              <select
+                value={fuelType}
+                onChange={(e) => setFuelType(e.target.value as FuelType)}
+                className="w-full h-11 px-3 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs focus:outline-none focus:border-emerald-500"
+              >
+                <option value="gasolina">Gasolina Comum</option>
+                <option value="etanol">Etanol (Álcool)</option>
+                <option value="gnv">GNV (Gás Natural)</option>
+                <option value="diesel">Diesel</option>
+              </select>
+            </div>
+
+            <div className="sm:col-span-1">
+              <label className="block text-slate-300 font-medium mb-1">Consumo Médio (km/l)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={consumptionKmL}
+                onChange={(e) => setConsumptionKmL(e.target.value)}
+                placeholder="10,0"
+                className="w-full h-11 px-3 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+              />
+            </div>
+
+            <div className="sm:col-span-1">
+              <label className="block text-slate-300 font-medium mb-1">Preço do Litro (R$)</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={fuelPricePerLiter}
+                onChange={(e) => setFuelPricePerLiter(e.target.value)}
+                placeholder="5,89"
+                className="w-full h-11 px-3 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-xs focus:outline-none focus:border-emerald-500"
+              />
+            </div>
           </div>
         </div>
 

@@ -4,6 +4,8 @@ import {
   PlusCircle,
   Settings as SettingsIcon,
   CheckCircle2,
+  Fuel,
+  Sparkles,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -50,17 +52,26 @@ export const Header: React.FC<HeaderProps> = ({
             Dashboard
           </button>
           <button
-            onClick={() => onNavigate('radar')}
+            onClick={() => onNavigate('fuel')}
             className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${
-              currentTab === 'radar'
+              currentTab === 'fuel'
                 ? 'text-emerald-400 bg-slate-800/80 shadow-sm font-semibold'
                 : 'hover:text-slate-200 hover:bg-slate-850'
             }`}
           >
-            <span>Radar</span>
-            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-1 py-0.2 rounded font-bold">
-              2.0
-            </span>
+            <Fuel className="w-4 h-4 text-emerald-400" />
+            <span>Combustível</span>
+          </button>
+          <button
+            onClick={() => onNavigate('assistant')}
+            className={`px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+              currentTab === 'assistant'
+                ? 'text-emerald-400 bg-slate-800/80 shadow-sm font-semibold'
+                : 'hover:text-slate-200 hover:bg-slate-850'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Assistente IA</span>
           </button>
           <button
             onClick={() => onNavigate('calculator')}

@@ -1,36 +1,69 @@
 /**
- * Lucro no Volante - Camada de Persistência Local e Gerenciamento de Estado
+ * Lucro no Volante 3.0 - Camada de Persistência e Gerenciamento de Estado
  * 
- * - Persistência real e durável via localStorage
+ * - Persistência real e durável via localStorage no navegador com fallback seguro
  * - Prevenção estrita de duplicidade de registros por data
- * - Tratamento de concorrência e exportação/importação de backups JSON
+ * - Histórico persistente de conversas com sessões independentes e exclusão com confirmação explícita
+ * - Exportação e importação de backups JSON completos
  * - Notificação em tempo real entre abas e componentes
  */
 
 import {
   DailyRecord,
   FinancialGoals,
-  RideAnalysisHistoryItem,
-  TrafficLightSettings,
   UserSettings,
+  VehicleConfig,
+  DEFAULT_VEHICLE_CONFIG,
+  ConversationSession,
+  AiChatMessage,
 } from '../types';
 import { getTodayDateString } from '../utils/finance';
 
 const STORAGE_KEYS = {
   RECORDS: 'lucro_volante_records_v1',
   SETTINGS: 'lucro_volante_settings_v1',
-  RADAR_ANALYSES: 'lucro_volante_radar_analyses_v1',
+  CONVERSATIONS: 'lucro_volante_conversations_v3',
+  ACTIVE_CONVERSATION: 'lucro_volante_active_conv_id_v3',
 };
 
-export const DEFAULT_TRAFFIC_LIGHT_SETTINGS: TrafficLightSettings = {
-  minGrossPerKm: 2.2, // R$ 2,20/km
-  minGrossPerHour: 40.0, // R$ 40,00/h
-  minNetProfitPerKm: 1.2, // R$ 1,20/km
-  minNetProfitPerHour: 25.0, // R$ 25,00/h
-  minPassengerRating: 4.8, // 4.80 estrelas
-  maxPickupDistanceKm: 3.5, // 3.5 km
-  maxPickupTimeMinutes: 8, // 8 min
-  mode: 'balanced',
+// Armazenamento em memória para ambientes headless, SSR ou execução de testes
+const memoryStore = new Map<string, string>();
+
+/**
+ * Interface de acesso resiliente ao armazenamento local
+ */
+const safeStorage = {
+  getItem(key: string): string | null {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const val = localStorage.getItem(key);
+        if (val !== null) return val;
+      } catch {
+        // Fallback para memória em caso de bloqueio do navegador
+      }
+    }
+    return memoryStore.get(key) ?? null;
+  },
+  setItem(key: string, value: string): void {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem(key, value);
+      } catch {
+        // Fallback para memória em caso de quota ou bloqueio
+      }
+    }
+    memoryStore.set(key, value);
+  },
+  removeItem(key: string): void {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // Ignora
+      }
+    }
+    memoryStore.delete(key);
+  },
 };
 
 const DEFAULT_GOALS: FinancialGoals = {
@@ -47,7 +80,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   vehicleType: 'alugado',
   defaultRentalDaily: 70.0,
   goals: DEFAULT_GOALS,
-  trafficLightSettings: DEFAULT_TRAFFIC_LIGHT_SETTINGS,
+  vehicleConfig: DEFAULT_VEHICLE_CONFIG,
   trialStartDate: getTodayDateString(),
   subscriptionStatus: 'trial',
 };
@@ -78,7 +111,7 @@ function notifyDataChanged() {
  */
 export function getDailyRecords(): DailyRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.RECORDS);
+    const raw = safeStorage.getItem(STORAGE_KEYS.RECORDS);
     if (!raw) return [];
     const parsed: DailyRecord[] = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -86,7 +119,7 @@ export function getDailyRecords(): DailyRecord[] {
     // Ordena do mais recente para o mais antigo
     return parsed.sort((a, b) => b.date.localeCompare(a.date));
   } catch (err) {
-    console.error('Erro ao ler registros do localStorage:', err);
+    console.error('Erro ao ler registros do armazenamento:', err);
     return [];
   }
 }
@@ -177,11 +210,11 @@ export function saveDailyRecord(data: {
   }
 
   try {
-    localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(records));
+    safeStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(records));
     notifyDataChanged();
     return { success: true, isUpdate, record: finalRecord };
   } catch (err) {
-    console.error('Falha ao gravar no localStorage:', err);
+    console.error('Falha ao gravar registro:', err);
     return { success: false, isUpdate, record: finalRecord };
   }
 }
@@ -195,7 +228,7 @@ export function deleteDailyRecord(id: string): boolean {
     const filtered = records.filter((r) => r.id !== id);
     if (filtered.length === records.length) return false;
 
-    localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(filtered));
+    safeStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(filtered));
     notifyDataChanged();
     return true;
   } catch (err) {
@@ -209,7 +242,7 @@ export function deleteDailyRecord(id: string): boolean {
  */
 export function getUserSettings(): UserSettings {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.SETTINGS);
+    const raw = safeStorage.getItem(STORAGE_KEYS.SETTINGS);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw);
     return {
@@ -219,9 +252,9 @@ export function getUserSettings(): UserSettings {
         ...DEFAULT_GOALS,
         ...(parsed.goals || {}),
       },
-      trafficLightSettings: {
-        ...DEFAULT_TRAFFIC_LIGHT_SETTINGS,
-        ...(parsed.trafficLightSettings || {}),
+      vehicleConfig: {
+        ...DEFAULT_VEHICLE_CONFIG,
+        ...(parsed.vehicleConfig || {}),
       },
     };
   } catch (err) {
@@ -243,12 +276,12 @@ export function saveUserSettings(settings: Partial<UserSettings>): UserSettings 
         ...current.goals,
         ...(settings.goals || {}),
       },
-      trafficLightSettings: {
-        ...current.trafficLightSettings,
-        ...(settings.trafficLightSettings || {}),
+      vehicleConfig: {
+        ...current.vehicleConfig,
+        ...(settings.vehicleConfig || {}),
       },
     };
-    localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
+    safeStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(updated));
     notifyDataChanged();
     return updated;
   } catch (err) {
@@ -257,85 +290,210 @@ export function saveUserSettings(settings: Partial<UserSettings>): UserSettings 
   }
 }
 
-/**
- * ========================================================
- * HISTÓRICO DE ANÁLISES DO RADAR DE CORRIDAS (SEPARADO)
- * ========================================================
- * O histórico de análises é estritamente isolado dos registros diários
- * efetivamente realizados, evitando qualquer poluição no faturamento real.
- */
+// ========================================================
+// Histórico Persistente de Conversas do Assistente Inteligente
+// ========================================================
 
-export function getRideAnalyses(): RideAnalysisHistoryItem[] {
+/**
+ * Obtém todas as sessões de conversa do assistente salvas no armazenamento persistente.
+ * Se fornecido driverId, isola as conversas daquele motorista/perfil.
+ * Em caso de falha de leitura, nunca corrompe ou sobrescreve os dados existentes.
+ */
+export function getConversationSessions(driverId?: string): ConversationSession[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.RADAR_ANALYSES);
+    const raw = safeStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
     if (!raw) return [];
-    const parsed: RideAnalysisHistoryItem[] = JSON.parse(raw);
+    const parsed: ConversationSession[] = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    return parsed.sort((a, b) => b.savedAt.localeCompare(a.savedAt));
+
+    let sessions = parsed;
+    if (driverId) {
+      sessions = sessions.filter((s) => !s.driverId || s.driverId === driverId);
+    }
+
+    // Ordena da conversa atualizada mais recentemente para a mais antiga
+    return sessions.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch (err) {
-    console.error('Erro ao ler análises do radar:', err);
+    console.error('Erro ao ler sessões de conversas:', err);
     return [];
   }
 }
 
-export function saveRideAnalysis(
-  item: Omit<RideAnalysisHistoryItem, 'id' | 'savedAt'> & { id?: string }
-): RideAnalysisHistoryItem {
-  const analyses = getRideAnalyses();
-  const newItem: RideAnalysisHistoryItem = {
-    ...item,
-    id: item.id || `radar_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    savedAt: new Date().toISOString(),
-  };
-
-  analyses.unshift(newItem);
-  // Limita a 100 análises mais recentes para poupar memória
-  const trimmed = analyses.slice(0, 100);
-
+/**
+ * Obtém o ID da conversa ativa atual
+ */
+export function getActiveConversationId(): string | null {
   try {
-    localStorage.setItem(STORAGE_KEYS.RADAR_ANALYSES, JSON.stringify(trimmed));
-    notifyDataChanged();
+    return safeStorage.getItem(STORAGE_KEYS.ACTIVE_CONVERSATION);
   } catch (err) {
-    console.error('Erro ao salvar análise do radar:', err);
+    return null;
   }
-
-  return newItem;
 }
 
-export function deleteRideAnalysis(id: string): boolean {
+/**
+ * Define o ID da conversa ativa
+ */
+export function setActiveConversationId(id: string): void {
   try {
-    const analyses = getRideAnalyses();
-    const filtered = analyses.filter((a) => a.id !== id);
-    if (filtered.length === analyses.length) return false;
+    safeStorage.setItem(STORAGE_KEYS.ACTIVE_CONVERSATION, id);
+    notifyDataChanged();
+  } catch (err) {
+    console.error('Erro ao definir conversa ativa:', err);
+  }
+}
 
-    localStorage.setItem(STORAGE_KEYS.RADAR_ANALYSES, JSON.stringify(filtered));
+/**
+ * Salva ou atualiza uma sessão de conversa no armazenamento persistente.
+ * Trata erros de gravação com segurança.
+ */
+export function saveConversationSession(session: ConversationSession): boolean {
+  try {
+    const raw = safeStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
+    const existing: ConversationSession[] = raw ? JSON.parse(raw) : [];
+    const idx = existing.findIndex((s) => s.id === session.id);
+
+    const updatedSession: ConversationSession = {
+      ...session,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (idx >= 0) {
+      existing[idx] = updatedSession;
+    } else {
+      existing.unshift(updatedSession);
+    }
+
+    safeStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(existing));
     notifyDataChanged();
     return true;
   } catch (err) {
-    console.error('Erro ao deletar análise do radar:', err);
+    console.error('Erro ao salvar sessão de conversa:', err);
     return false;
   }
 }
 
-export function clearRideAnalyses(): void {
-  localStorage.removeItem(STORAGE_KEYS.RADAR_ANALYSES);
-  notifyDataChanged();
+/**
+ * Cria uma nova conversa independente sem apagar as anteriores.
+ */
+export function createConversationSession(params: {
+  title?: string;
+  initialMessage?: AiChatMessage;
+  driverId?: string;
+}): ConversationSession {
+  const now = new Date().toISOString();
+  const id = `conv_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const title = params.title || `Conversa ${new Date().toLocaleDateString('pt-BR')}`;
+  
+  const messages: AiChatMessage[] = params.initialMessage
+    ? [{ ...params.initialMessage, conversationId: id }]
+    : [];
+
+  const newSession: ConversationSession = {
+    id,
+    title,
+    createdAt: now,
+    updatedAt: now,
+    driverId: params.driverId,
+    messages,
+  };
+
+  saveConversationSession(newSession);
+  setActiveConversationId(id);
+  return newSession;
 }
 
 /**
- * Exporta os dados completos como JSON para backup local (inclui registros, metas e radar)
+ * Adiciona uma mensagem à conversa especificada mantendo a persistência.
+ */
+export function addMessageToConversationSession(
+  sessionId: string,
+  message: AiChatMessage
+): boolean {
+  try {
+    const sessions = getConversationSessions();
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return false;
+
+    session.messages.push({ ...message, conversationId: sessionId });
+    return saveConversationSession(session);
+  } catch (err) {
+    console.error('Erro ao adicionar mensagem à conversa:', err);
+    return false;
+  }
+}
+
+/**
+ * Limpa a tela/mensagens da conversa ativa sem excluir o registro da sessão.
+ */
+export function clearConversationMessages(sessionId: string): boolean {
+  try {
+    const sessions = getConversationSessions();
+    const session = sessions.find((s) => s.id === sessionId);
+    if (!session) return false;
+
+    session.messages = [];
+    return saveConversationSession(session);
+  } catch (err) {
+    console.error('Erro ao limpar mensagens da conversa:', err);
+    return false;
+  }
+}
+
+/**
+ * Exclui uma sessão de conversa do histórico persistente.
+ * EXIGE explicitConfirmation === true para evitar exclusões acidentais ou automáticas.
+ */
+export function deleteConversationSession(
+  sessionId: string,
+  explicitConfirmation: boolean
+): boolean {
+  if (!explicitConfirmation) {
+    console.warn('Exclusão de conversa rejeitada: confirmação explícita obrigatória.');
+    return false;
+  }
+
+  try {
+    const raw = safeStorage.getItem(STORAGE_KEYS.CONVERSATIONS);
+    if (!raw) return false;
+    const existing: ConversationSession[] = JSON.parse(raw);
+    const filtered = existing.filter((s) => s.id !== sessionId);
+
+    if (filtered.length === existing.length) return false;
+
+    safeStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(filtered));
+
+    // Se a conversa deletada era a ativa, limpa a referência ativa
+    if (getActiveConversationId() === sessionId) {
+      if (filtered.length > 0) {
+        setActiveConversationId(filtered[0].id);
+      } else {
+        safeStorage.removeItem(STORAGE_KEYS.ACTIVE_CONVERSATION);
+      }
+    }
+
+    notifyDataChanged();
+    return true;
+  } catch (err) {
+    console.error('Erro ao excluir sessão de conversa:', err);
+    return false;
+  }
+}
+
+/**
+ * Exporta os dados completos como JSON para backup local (inclui registros, metas, veículo e conversas)
  */
 export function exportAllDataJSON(): string {
   const records = getDailyRecords();
   const settings = getUserSettings();
-  const radarAnalyses = getRideAnalyses();
+  const conversations = getConversationSessions();
   const payload = {
     appName: 'Lucro no Volante',
     exportDate: new Date().toISOString(),
-    version: '2.0.0',
+    version: '3.0.0',
     records,
+    dailyRecords: records,
     settings,
-    radarAnalyses,
+    conversations,
   };
   return JSON.stringify(payload, null, 2);
 }
@@ -350,23 +508,28 @@ export function importDataJSON(jsonStr: string): {
 } {
   try {
     const parsed = JSON.parse(jsonStr);
-    if (!parsed || !Array.isArray(parsed.records)) {
+    const recordsList = Array.isArray(parsed.dailyRecords) ? parsed.dailyRecords : parsed.records;
+    if (!parsed || !Array.isArray(recordsList)) {
       return { success: false, count: 0, error: 'Formato de arquivo inválido. Lista de registros não encontrada.' };
     }
 
     // Validação básica dos registros
-    const validRecords: DailyRecord[] = parsed.records.filter(
+    const validRecords: DailyRecord[] = recordsList.filter(
       (r: any) => r && typeof r.date === 'string' && typeof r.grossRevenue === 'number'
     );
 
-    localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(validRecords));
+    safeStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(validRecords));
 
     if (parsed.settings && typeof parsed.settings === 'object') {
       saveUserSettings(parsed.settings);
     }
 
-    if (Array.isArray(parsed.radarAnalyses)) {
-      localStorage.setItem(STORAGE_KEYS.RADAR_ANALYSES, JSON.stringify(parsed.radarAnalyses));
+    // Importa conversas se presentes no backup
+    if (Array.isArray(parsed.conversations)) {
+      safeStorage.setItem(STORAGE_KEYS.CONVERSATIONS, JSON.stringify(parsed.conversations));
+      if (parsed.conversations.length > 0) {
+        setActiveConversationId(parsed.conversations[0].id);
+      }
     }
 
     notifyDataChanged();
@@ -380,9 +543,10 @@ export function importDataJSON(jsonStr: string): {
  * Limpa todos os dados salvos do aplicativo
  */
 export function clearAllData(): void {
-  localStorage.removeItem(STORAGE_KEYS.RECORDS);
-  localStorage.removeItem(STORAGE_KEYS.SETTINGS);
-  localStorage.removeItem(STORAGE_KEYS.RADAR_ANALYSES);
+  safeStorage.removeItem(STORAGE_KEYS.RECORDS);
+  safeStorage.removeItem(STORAGE_KEYS.SETTINGS);
+  safeStorage.removeItem(STORAGE_KEYS.CONVERSATIONS);
+  safeStorage.removeItem(STORAGE_KEYS.ACTIVE_CONVERSATION);
   notifyDataChanged();
 }
 
@@ -427,6 +591,6 @@ export function seedRealisticSampleData(): void {
     });
   });
 
-  localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(sampleRecords));
+  safeStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(sampleRecords));
   notifyDataChanged();
 }

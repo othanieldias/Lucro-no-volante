@@ -51,7 +51,8 @@ interface DashboardViewProps {
   records: DailyRecord[];
   settings: UserSettings;
   onNavigateToCalculator: () => void;
-  onNavigateToRadar: () => void;
+  onNavigateToFuel: () => void;
+  onNavigateToAssistant: () => void;
   onSeedSampleData: () => void;
 }
 
@@ -59,7 +60,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   records,
   settings,
   onNavigateToCalculator,
-  onNavigateToRadar,
+  onNavigateToFuel,
+  onNavigateToAssistant,
   onSeedSampleData,
 }) => {
   const [selectedPeriod, setSelectedPeriod] = useState<DatePeriodFilter>('thisWeek');
@@ -105,10 +107,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return records.filter((r) => r.date >= start && r.date <= end);
   }, [records, selectedPeriod, todayStr, customStart, customEnd]);
 
-  // Resumo do período selecionado
+  // Resumo do período selecionado (com cálculo de combustível consumido)
   const currentSummary = useMemo(() => {
-    return aggregatePeriodSummary(filteredRecords);
-  }, [filteredRecords]);
+    return aggregatePeriodSummary(filteredRecords, settings.vehicleConfig);
+  }, [filteredRecords, settings.vehicleConfig]);
 
   // Resumo de Hoje
   const todayRecord = useMemo(() => {
@@ -116,8 +118,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [records, todayStr]);
 
   const todaySummary = useMemo(() => {
-    return aggregatePeriodSummary(todayRecord ? [todayRecord] : []);
-  }, [todayRecord]);
+    return aggregatePeriodSummary(todayRecord ? [todayRecord] : [], settings.vehicleConfig);
+  }, [todayRecord, settings.vehicleConfig]);
 
   // Resumo da Semana Atual (Segunda a Domingo)
   const thisWeekRecords = useMemo(() => {
@@ -126,8 +128,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [records]);
 
   const thisWeekSummary = useMemo(() => {
-    return aggregatePeriodSummary(thisWeekRecords);
-  }, [thisWeekRecords]);
+    return aggregatePeriodSummary(thisWeekRecords, settings.vehicleConfig);
+  }, [thisWeekRecords, settings.vehicleConfig]);
 
   // Resumo do Mês Atual (Mês Calendário)
   const thisMonthRecords = useMemo(() => {
@@ -136,8 +138,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [records]);
 
   const thisMonthSummary = useMemo(() => {
-    return aggregatePeriodSummary(thisMonthRecords);
-  }, [thisMonthRecords]);
+    return aggregatePeriodSummary(thisMonthRecords, settings.vehicleConfig);
+  }, [thisMonthRecords, settings.vehicleConfig]);
+
 
   // Cálculos de Metas
   const dailyProfitGoal = settings.goals.dailyNetProfitGoal || 200;
@@ -242,8 +245,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               {greeting}, {settings.driverName || 'Motorista'}!
             </h2>
             <p className="text-sm text-slate-400">
-              Você ainda não registrou nenhum dia de trabalho. Registre seu primeiro turno ou
-              avalie uma corrida com o novo Radar de Corridas.
+              Você ainda não registrou nenhum dia de trabalho. Registre seu primeiro turno,
+              configure o consumo do seu carro ou converse com o Assistente Inteligente.
             </p>
           </div>
 
@@ -256,17 +259,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span>Fazer Primeiro Cálculo Diário</span>
             </button>
             <button
-              onClick={onNavigateToRadar}
+              onClick={onNavigateToFuel}
               className="w-full sm:w-auto h-12 px-5 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 border border-slate-700 transition"
             >
-              <Compass className="w-4 h-4" />
-              <span>Abrir Radar de Corridas</span>
+              <Fuel className="w-4 h-4" />
+              <span>Combustível & Rentabilidade</span>
+            </button>
+            <button
+              onClick={onNavigateToAssistant}
+              className="w-full sm:w-auto h-12 px-4 bg-slate-850 hover:bg-slate-800 text-emerald-300 font-medium text-xs rounded-xl flex items-center justify-center gap-1.5 border border-emerald-500/30 transition"
+            >
+              <Sparkles className="w-4 h-4 text-emerald-400" />
+              <span>Assistente IA</span>
             </button>
             <button
               onClick={onSeedSampleData}
               className="w-full sm:w-auto h-12 px-4 bg-slate-900 hover:bg-slate-850 text-slate-400 font-medium text-xs rounded-xl flex items-center justify-center gap-1.5 border border-slate-800 transition"
             >
-              <Sparkles className="w-4 h-4 text-slate-400" />
               <span>Carregar 7 Dias Demo</span>
             </button>
           </div>
@@ -285,9 +294,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
             </div>
             <div className="p-3.5 bg-slate-950/60 rounded-xl border border-slate-800/60">
-              <span className="text-xs font-semibold text-white block">3. Radar de Ofertas</span>
+              <span className="text-xs font-semibold text-white block">3. Assistente Inteligente</span>
               <span className="text-[11px] text-slate-400">
-                Semáforo inteligente para aceitar apenas corridas realmente rentáveis.
+                Diagnósticos rápidos para aumentar seu lucro limpo e economizar combustível.
               </span>
             </div>
           </div>
@@ -298,12 +307,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      {/* Cabeçalho Acolhedor com Saudação e CTA em Destaque */}
+      {/* Cabeçalho Acolhedor com Saudação e CTAs em Destaque */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/90 rounded-2xl shadow-sm">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
-              Painel Financeiro 2.0
+              Painel Financeiro 3.0
             </span>
             <span className="text-slate-600">·</span>
             <span className="text-xs text-slate-400">
@@ -328,21 +337,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </p>
         </div>
 
-        {/* Ação de Destaque Primária: Radar de Corridas */}
-        <div className="flex items-center gap-2 self-start md:self-auto">
+        {/* Ações de Destaque */}
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
           <button
-            onClick={onNavigateToRadar}
+            onClick={onNavigateToFuel}
             className="h-11 px-4 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-slate-950 font-extrabold text-xs rounded-xl flex items-center gap-2 shadow-lg shadow-emerald-500/20 transition"
           >
-            <Zap className="w-4 h-4 fill-slate-950" />
-            <span>Avaliar Corrida no Radar</span>
+            <Fuel className="w-4 h-4 fill-slate-950" />
+            <span>Combustível & Consumo</span>
+          </button>
+
+          <button
+            onClick={onNavigateToAssistant}
+            className="h-11 px-3.5 bg-slate-800 hover:bg-slate-700 text-emerald-300 text-xs font-semibold rounded-xl border border-emerald-500/30 transition flex items-center gap-1.5"
+          >
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <span>Assistente IA</span>
           </button>
 
           <button
             onClick={onNavigateToCalculator}
-            className="h-11 px-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition flex items-center gap-1.5"
+            className="h-11 px-3.5 bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold rounded-xl border border-slate-700 transition flex items-center gap-1.5"
           >
-            <PlusCircle className="w-4 h-4 text-emerald-400" />
+            <PlusCircle className="w-4 h-4 text-slate-400" />
             <span className="hidden sm:inline">Lançar Turno</span>
           </button>
         </div>
@@ -445,10 +462,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           3. Quanto Realmente Sobrou? (Lucro líquido operacional - DESTAQUE MÁXIMO)
       */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-        {/* CARD PROTAGONISTA: LUCRO LÍQUIDO OPERACIONAL (Destaque 6 colunas ou full no mobile) */}
+        {/* CARD PROTAGONISTA: LUCRO LÍQUIDO OPERACIONAL */}
         <div
           className={`md:col-span-6 p-6 rounded-3xl border shadow-lg transition-all flex flex-col justify-between ${
-            currentSummary.netProfit < 0
+            (currentSummary.operationalNetProfit ?? currentSummary.netProfit) < 0
               ? 'bg-gradient-to-br from-rose-950/40 via-slate-900 to-slate-950 border-rose-500/40'
               : 'bg-gradient-to-br from-emerald-950/40 via-slate-900 to-slate-950 border-emerald-500/40'
           }`}
@@ -460,44 +477,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </span>
               <span
                 className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-                  currentSummary.netProfit < 0
+                  (currentSummary.operationalNetProfit ?? currentSummary.netProfit) < 0
                     ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                     : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                 }`}
               >
-                {currentSummary.netProfit < 0 ? 'Prejuízo Operacional' : 'Lucro Líquido no Bolso'}
+                {(currentSummary.operationalNetProfit ?? currentSummary.netProfit) < 0
+                  ? 'Prejuízo Operacional'
+                  : 'Lucro Líquido Operacional'}
               </span>
             </div>
 
             <div
               className={`text-3xl sm:text-4xl lg:text-5xl font-black font-mono tabular-nums mt-3 tracking-tight ${
-                currentSummary.netProfit < 0 ? 'text-rose-400' : 'text-emerald-400'
+                (currentSummary.operationalNetProfit ?? currentSummary.netProfit) < 0
+                  ? 'text-rose-400'
+                  : 'text-emerald-400'
               }`}
             >
-              {formatCurrency(currentSummary.netProfit)}
+              {formatCurrency(currentSummary.operationalNetProfit ?? currentSummary.netProfit)}
             </div>
 
             <p className="text-xs text-slate-400 mt-2">
-              Lucro líquido após abater combustível, aluguel/parcela e despesas do período.
+              Lucro operacional líquido considerando o combustível consumido nos {formatNumber(currentSummary.totalKm)} km rodados (sem distorções do dia que encheu o tanque).
             </p>
           </div>
 
-          {/* Sub-indicadores do Lucro Líquido */}
+          {/* Sub-indicadores do Lucro Líquido Operacional */}
           <div className="grid grid-cols-3 gap-2 pt-4 mt-4 border-t border-slate-800/80 text-xs">
             <div>
               <span className="text-[10px] text-slate-400 block">Margem Líquida</span>
               <span className="font-mono font-bold text-white text-sm">
-                {formatPercent(currentSummary.netMarginPercent)}
+                {formatPercent(currentSummary.operationalNetMarginPercent ?? currentSummary.netMarginPercent)}
               </span>
             </div>
             <div>
               <span className="text-[10px] text-slate-400 block">Lucro por KM</span>
               <span
                 className={`font-mono font-bold text-sm ${
-                  (currentSummary.avgProfitPerKm || 0) < 0 ? 'text-rose-400' : 'text-emerald-400'
+                  (currentSummary.operationalProfitPerKm ?? currentSummary.avgProfitPerKm ?? 0) < 0
+                    ? 'text-rose-400'
+                    : 'text-emerald-400'
                 }`}
               >
-                {formatPerKm(currentSummary.avgProfitPerKm)}
+                {formatPerKm(currentSummary.operationalProfitPerKm ?? currentSummary.avgProfitPerKm)}
               </span>
             </div>
             <div>
@@ -511,7 +534,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* CARDS SECUNDÁRIOS: GANHOS BRUTOS & CUSTOS TOTAIS (6 colunas) */}
+        {/* CARDS SECUNDÁRIOS: GANHOS BRUTOS & CUSTO CONSUMIDO VS ABASTECIMENTO (6 colunas) */}
         <div className="md:col-span-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Card: Ganhos Brutos das Corridas */}
           <div className="p-5 bg-slate-900/60 border border-slate-800/90 rounded-2xl flex flex-col justify-between">
@@ -523,11 +546,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </span>
               </div>
 
-              <div className="text-2xl lg:text-3xl font-extrabold font-mono tabular-nums text-white mt-2">
+              <div className="text-2xl font-extrabold font-mono tabular-nums text-white mt-2">
                 {formatCurrency(currentSummary.totalRevenue)}
               </div>
               <span className="text-[11px] text-slate-400 block mt-1">
-                Total bruto pago pelas plataformas antes dos custos
+                Faturamento bruto repassado pelas plataformas
               </span>
             </div>
 
@@ -541,49 +564,66 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Card: Custos Totais Operacionais */}
+          {/* Card: Custo do Combustível Consumido (Operacional) */}
           <div className="p-5 bg-slate-900/60 border border-slate-800/90 rounded-2xl flex flex-col justify-between">
             <div>
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-300">Custos Totais</span>
-                <span className="p-1.5 rounded-lg bg-slate-800 text-rose-400">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-slate-300">Combustível Consumido</span>
+                  <span className="text-[10px] font-medium text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-1.5 py-0.5 rounded">
+                    Estimado
+                  </span>
+                </div>
+                <span className="p-1.5 rounded-lg bg-slate-800 text-amber-400">
                   <Fuel className="w-4 h-4" />
                 </span>
               </div>
 
-              <div className="text-2xl lg:text-3xl font-extrabold font-mono tabular-nums text-rose-400 mt-2">
-                {formatCurrency(currentSummary.totalCosts)}
+              <div className="text-2xl font-extrabold font-mono tabular-nums text-amber-400 mt-2">
+                {formatCurrency(currentSummary.consumedFuelCost || 0)}
               </div>
               <span className="text-[11px] text-slate-400 block mt-1">
-                Combustível, aluguel e despesas operacionais
+                {formatNumber(currentSummary.consumedFuelLiters || 0, 1)} L consumidos ({settings.vehicleConfig.consumptionKmL} km/l)
               </span>
             </div>
 
             <div className="pt-3 mt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-              <span>Custo por km:</span>
+              <span>Custo combustível/km:</span>
               <span className="font-mono font-bold text-slate-200">
-                {formatPerKm(currentSummary.avgCostPerKm)}
+                {formatPerKm(
+                  settings.vehicleConfig.consumptionKmL > 0
+                    ? settings.vehicleConfig.fuelPricePerLiter / settings.vehicleConfig.consumptionKmL
+                    : null
+                )}
               </span>
             </div>
           </div>
 
-          {/* Card: Quilômetros Rodados */}
+          {/* Card: Abastecimentos no Dia/Período (Fluxo de Caixa) */}
           <div className="p-4 bg-slate-900/60 border border-slate-800/90 rounded-2xl flex items-center justify-between">
             <div>
-              <span className="text-[11px] text-slate-400 block">Quilometragem Total</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-slate-400 block">Abastecido no Posto</span>
+                <span className="text-[9px] font-mono text-slate-400 bg-slate-800 px-1.5 py-0.2 rounded">
+                  Fluxo de Caixa
+                </span>
+              </div>
               <span className="text-lg font-bold font-mono text-white mt-0.5 block">
-                {formatNumber(currentSummary.totalKm)} km
+                {formatCurrency(currentSummary.refillTotalCost || currentSummary.totalFuel)}
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Pagamentos efetuados na bomba
               </span>
             </div>
             <div className="text-right">
-              <span className="text-[11px] text-slate-400 block">Dias Trabalhados</span>
+              <span className="text-[11px] text-slate-400 block">Quilometragem</span>
               <span className="text-sm font-bold text-slate-200 font-mono">
-                {currentSummary.workedDaysCount} dias
+                {formatNumber(currentSummary.totalKm)} km
               </span>
             </div>
           </div>
 
-          {/* Card: Horas Trabalhadas */}
+          {/* Card: Horas Trabalhadas e Dias */}
           <div className="p-4 bg-slate-900/60 border border-slate-800/90 rounded-2xl flex items-center justify-between">
             <div>
               <span className="text-[11px] text-slate-400 block">Tempo de Volante</span>
@@ -592,16 +632,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   ? formatHours(currentSummary.totalHoursWorked)
                   : 'Não informado'}
               </span>
+              <span className="text-[10px] text-slate-500">
+                {currentSummary.workedDaysCount} dia(s) trabalhados
+              </span>
             </div>
             <div className="text-right">
-              <span className="text-[11px] text-slate-400 block">Média por Turno</span>
+              <span className="text-[11px] text-slate-400 block">Média Lucro/Dia</span>
               <span className="text-sm font-bold text-emerald-400 font-mono">
-                {formatCurrency(currentSummary.avgNetProfitPerWorkedDay)}
+                {formatCurrency(
+                  currentSummary.workedDaysCount > 0
+                    ? (currentSummary.operationalNetProfit ?? currentSummary.netProfit) / currentSummary.workedDaysCount
+                    : 0
+                )}
               </span>
             </div>
           </div>
         </div>
       </div>
+
 
       {/* SEÇÃO VISUAL: "PARA ONDE FOI SEU DINHEIRO?" (Requisito Obrigatório) */}
       <div className="bg-slate-900/60 border border-slate-800/90 rounded-2xl p-5 space-y-4 shadow-sm">
@@ -722,6 +770,98 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* RESPOSTA 5: "COMO POSSO MELHORAR MEU RESULTADO?" (Diretriz Obrigatória) */}
+      <div className="bg-gradient-to-r from-slate-900 via-slate-900/90 to-slate-950 border border-slate-800/90 rounded-2xl p-5 space-y-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                Pergunta 5
+              </span>
+              <h3 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                Como posso melhorar meu resultado?
+              </h3>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Recomendações financeiras práticas geradas com base nas suas métricas do período.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onNavigateToAssistant}
+              className="text-xs px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 transition flex items-center gap-1.5 font-semibold"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Perguntar à IA</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          {/* Dica 1: Eficiência de Combustível */}
+          <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl space-y-2">
+            <div className="flex items-center gap-2 text-amber-400 font-semibold">
+              <Fuel className="w-4 h-4" />
+              <span>Controle de Combustível</span>
+            </div>
+            <p className="text-slate-300 leading-relaxed text-[11px]">
+              {currentSummary.totalFuel > 0 && currentSummary.totalRevenue > 0
+                ? (currentSummary.totalFuel / currentSummary.totalRevenue) > 0.35
+                  ? `Combustível consumiu ${Math.round((currentSummary.totalFuel / currentSummary.totalRevenue) * 100)}% da receita (alto). Simule o consumo real do veículo.`
+                  : `Combustível consumiu ${Math.round((currentSummary.totalFuel / currentSummary.totalRevenue) * 100)}% da receita (ótima faixa). Mantenha rota otimizada.`
+                : 'Cadastre o consumo do seu veículo (km/l) para prever o custo exato por km.'}
+            </p>
+            <button
+              onClick={onNavigateToFuel}
+              className="text-[11px] text-emerald-400 hover:underline font-semibold flex items-center gap-1 pt-1"
+            >
+              <span>Ajustar veículo & consumo</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          </div>
+
+          {/* Dica 2: Lucro por KM */}
+          <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl space-y-2">
+            <div className="flex items-center gap-2 text-emerald-400 font-semibold">
+              <Gauge className="w-4 h-4" />
+              <span>Rendimento por KM</span>
+            </div>
+            <p className="text-slate-300 leading-relaxed text-[11px]">
+              {(currentSummary.avgProfitPerKm || 0) < 1.0
+                ? 'Seu lucro médio por km está abaixo de R$ 1,00/km. Evite rodar vazio buscando passageiros e prefira pontos de alta demanda.'
+                : `Seu lucro líquido é de ${formatPerKm(currentSummary.avgProfitPerKm)}. Excelente índice de rentabilidade rodada.`}
+            </p>
+            <span className="text-[10px] text-slate-500 block font-mono">
+              Custo operacional médio: {formatPerKm(currentSummary.avgCostPerKm)}
+            </span>
+          </div>
+
+          {/* Dica 3: Produtividade por Hora */}
+          <div className="p-3.5 bg-slate-950/70 border border-slate-800/80 rounded-xl space-y-2">
+            <div className="flex items-center gap-2 text-blue-400 font-semibold">
+              <Clock className="w-4 h-4" />
+              <span>Horas de Volante</span>
+            </div>
+            <p className="text-slate-300 leading-relaxed text-[11px]">
+              {currentSummary.avgNetProfitPerHour !== null
+                ? currentSummary.avgNetProfitPerHour < 25
+                  ? `Seu ganho limpo está em ${formatPerHour(currentSummary.avgNetProfitPerHour)}. Concentre turnos nos picos de movimento (manhã 6h-9h e tarde 17h-20h).`
+                  : `Rendimento de ${formatPerHour(currentSummary.avgNetProfitPerHour)}. Acima da média para turnos urbanos.`
+                : 'Registre as horas trabalhadas em cada turno para calcular seu ganho real por hora.'}
+            </p>
+            <button
+              onClick={onNavigateToAssistant}
+              className="text-[11px] text-blue-400 hover:underline font-semibold flex items-center gap-1 pt-1"
+            >
+              <span>Ver diagnóstico do Assistente IA</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Meta Diária & Acumulados da Semana e do Mês */}

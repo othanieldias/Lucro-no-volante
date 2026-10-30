@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Header } from './components/Header';
 import { MobileNavigation } from './components/MobileNavigation';
 import { DashboardView } from './components/DashboardView';
-import { RadarView } from './components/RadarView';
+import { FuelProfitabilityView } from './components/FuelProfitabilityView';
+import { AssistantView } from './components/AssistantView';
 import { CalculatorView } from './components/CalculatorView';
 import { HistoryView } from './components/HistoryView';
 import { GoalsView } from './components/GoalsView';
@@ -16,7 +17,6 @@ import {
   seedRealisticSampleData,
   subscribeToDataChanges,
 } from './services/storage';
-import { aggregatePeriodSummary } from './utils/finance';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<string>('dashboard');
@@ -34,12 +34,6 @@ export default function App() {
     const unsubscribe = subscribeToDataChanges(refreshState);
     return () => unsubscribe();
   }, [refreshState]);
-
-  // Custo operacional real por km calculado do histórico do motorista
-  const realCostPerKm = useMemo(() => {
-    const summary = aggregatePeriodSummary(records);
-    return summary.avgCostPerKm;
-  }, [records]);
 
   // Ações de navegação
   const handleNavigate = (tab: string) => {
@@ -83,16 +77,27 @@ export default function App() {
             records={records}
             settings={settings}
             onNavigateToCalculator={handleNewCalculation}
-            onNavigateToRadar={() => handleNavigate('radar')}
+            onNavigateToFuel={() => handleNavigate('fuel')}
+            onNavigateToAssistant={() => handleNavigate('assistant')}
             onSeedSampleData={seedRealisticSampleData}
           />
         )}
 
-        {currentTab === 'radar' && (
-          <RadarView
+        {currentTab === 'fuel' && (
+          <FuelProfitabilityView
+            records={records}
             settings={settings}
-            realCostPerKm={realCostPerKm}
             onSettingsUpdated={setSettings}
+            onNavigateToCalculator={handleNewCalculation}
+          />
+        )}
+
+        {currentTab === 'assistant' && (
+          <AssistantView
+            records={records}
+            settings={settings}
+            onNavigateToFuel={() => handleNavigate('fuel')}
+            onNavigateToCalculator={handleNewCalculation}
           />
         )}
 
@@ -121,7 +126,7 @@ export default function App() {
         )}
 
         {currentTab === 'reports' && (
-          <ReportsView records={records} />
+          <ReportsView records={records} settings={settings} />
         )}
 
         {currentTab === 'settings' && (

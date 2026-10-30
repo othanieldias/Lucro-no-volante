@@ -1,11 +1,10 @@
 import React from 'react';
 import {
   LayoutDashboard,
-  Compass,
+  Fuel,
   Calculator,
   History,
-  Target,
-  FileBarChart,
+  Sparkles,
   Settings,
 } from 'lucide-react';
 
@@ -22,7 +21,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({
 }) => {
   const tabs = [
     { id: 'dashboard', label: 'Painel', icon: LayoutDashboard },
-    { id: 'radar', label: 'Radar', icon: Compass },
+    { id: 'fuel', label: 'Combustível', icon: Fuel },
     { id: 'calculator', label: 'Calcular', icon: Calculator },
     {
       id: 'history',
@@ -30,7 +29,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({
       icon: History,
       badge: recordCount > 0 ? recordCount : undefined,
     },
-    { id: 'goals', label: 'Metas', icon: Target },
+    { id: 'assistant', label: 'IA', icon: Sparkles },
     { id: 'reports', label: 'Mais', icon: Settings },
   ];
 

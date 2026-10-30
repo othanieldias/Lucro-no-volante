@@ -14,11 +14,8 @@ import {
   CalculatedMetrics,
   DailyRecord,
   PeriodSummary,
-  RideOfferInput,
-  RideEvaluationResult,
-  TrafficLightSettings,
-  RideCriteriaCheck,
-  TrafficLightResult,
+  VehicleConfig,
+  FuelPeriodAnalysis,
 } from '../types';
 
 /**
@@ -343,9 +340,48 @@ export function getLast7DaysRange(): { startDate: string; endDate: string } {
 }
 
 /**
- * Agrega um conjunto de registros diários para gerar resumo do período
+/**
+ * Converte quilômetros percorridos em litros e custo de combustível consumido
+ * 
+ * Regra Obrigatória Lucro no Volante 3.0:
+ * - Litros consumidos = km rodados ÷ consumo (km/L)
+ * - Custo do combustível consumido = Litros consumidos × Preço por litro (R$/L)
+ * 
+ * Exemplo gabarito:
+ * - 180 km rodados, 10 km/L, R$ 6,00/L -> 18,0 L consumidos e R$ 108,00 de custo consumido.
  */
-export function aggregatePeriodSummary(records: DailyRecord[]): PeriodSummary {
+export function calculateConsumedFuel(
+  km: number,
+  consumptionKmL: number,
+  fuelPricePerLiter: number
+): { liters: number; cost: number; costPerKm: number | null } {
+  const safeKm = Math.max(0, Number(km) || 0);
+  const safeConsumption = Math.max(0, Number(consumptionKmL) || 0);
+  const safePrice = Math.max(0, Number(fuelPricePerLiter) || 0);
+
+  if (safeKm <= 0 || safeConsumption <= 0) {
+    const costKm = safeConsumption > 0 && safePrice > 0 ? round2(safePrice / safeConsumption) : null;
+    return { liters: 0, cost: 0, costPerKm: costKm };
+  }
+
+  // Litros consumidos = km rodados ÷ consumo médio em km/l
+  const liters = round2(safeKm / safeConsumption);
+  // Custo do combustível consumido = Litros consumidos × preço por litro
+  const cost = round2(liters * safePrice);
+  const costPerKm = round2(safePrice / safeConsumption);
+
+  return { liters, cost, costPerKm };
+}
+
+/**
+ * Agrega um conjunto de registros diários para gerar resumo do período
+ * Aceita opcionalmente as configurações do veículo (vehicleConfig) para calcular
+ * a distinção estrita entre "Abastecimento no Posto (Caixa)" e "Custo do Combustível Consumido (Operacional)".
+ */
+export function aggregatePeriodSummary(
+  records: DailyRecord[],
+  vehicleConfig?: VehicleConfig
+): PeriodSummary {
   if (!records || records.length === 0) {
     return {
       recordCount: 0,
@@ -367,6 +403,15 @@ export function aggregatePeriodSummary(records: DailyRecord[]): PeriodSummary {
       netMarginPercent: null,
       bestDay: null,
       worstDay: null,
+      consumedFuelLiters: 0,
+      consumedFuelCost: 0,
+      operationalTotalCosts: 0,
+      operationalNetProfit: 0,
+      operationalCostPerKm: null,
+      operationalProfitPerKm: null,
+      operationalNetMarginPercent: null,
+      refillTotalCost: 0,
+      isFuelEstimated: false,
     };
   }
 
@@ -436,6 +481,37 @@ export function aggregatePeriodSummary(records: DailyRecord[]): PeriodSummary {
   const netMarginPercent =
     totalRevenue > 0 ? round2((netProfit / totalRevenue) * 100) : null;
 
+  // Cálculo do Combustível Consumido Operacional
+  let consumedFuelLiters = 0;
+  let consumedFuelCost = 0;
+  let operationalTotalCosts = totalCosts;
+  let operationalNetProfit = netProfit;
+  let operationalCostPerKm = avgCostPerKm;
+  let operationalProfitPerKm = avgProfitPerKm;
+  let operationalNetMarginPercent = netMarginPercent;
+  let isFuelEstimated = false;
+
+  if (vehicleConfig && vehicleConfig.consumptionKmL > 0 && vehicleConfig.fuelPricePerLiter > 0) {
+    const consumed = calculateConsumedFuel(
+      totalKm,
+      vehicleConfig.consumptionKmL,
+      vehicleConfig.fuelPricePerLiter
+    );
+    consumedFuelLiters = consumed.liters;
+    consumedFuelCost = consumed.cost;
+    isFuelEstimated = true;
+
+    // Regra anti-dupla contagem:
+    // Custo Operacional Total = Custo do Combustível Consumido + Aluguel + Outras Despesas
+    // (o valor do abastecimento no posto é tratado como fluxo de caixa de compra de insumo)
+    operationalTotalCosts = round2(consumedFuelCost + totalRental + totalOther);
+    operationalNetProfit = round2(totalRevenue - operationalTotalCosts);
+    operationalCostPerKm = totalKm > 0 ? round2(operationalTotalCosts / totalKm) : null;
+    operationalProfitPerKm = totalKm > 0 ? round2(operationalNetProfit / totalKm) : null;
+    operationalNetMarginPercent =
+      totalRevenue > 0 ? round2((operationalNetProfit / totalRevenue) * 100) : null;
+  }
+
   return {
     recordCount: records.length,
     workedDaysCount,
@@ -456,261 +532,148 @@ export function aggregatePeriodSummary(records: DailyRecord[]): PeriodSummary {
     netMarginPercent,
     bestDay,
     worstDay,
+    consumedFuelLiters,
+    consumedFuelCost,
+    operationalTotalCosts,
+    operationalNetProfit,
+    operationalCostPerKm,
+    operationalProfitPerKm,
+    operationalNetMarginPercent,
+    refillTotalCost: totalFuel,
+    isFuelEstimated,
   };
 }
 
 /**
- * ========================================================
- * MOTOR DE CÁLCULO DO RADAR DE CORRIDAS (SEMÁFORO INTELIGENTE)
- * ========================================================
- * 
- * Regras mandatórias:
- * 1. Distância total da operação considera deslocamento até o passageiro e percurso da corrida, sem contar duas vezes.
- * 2. Tempo total da operação considera espera/deslocamento até passageiro e viagem.
- * 3. Custo operacional estimado = (custo por km * distância) + pedágios/custos adicionais.
- * 4. Lucro líquido estimado = valor recebido − custo operacional estimado.
- * 5. Ganho bruto por km e por hora.
- * 6. Lucro líquido por km e por hora.
- * 7. Semáforo:
- *    - VERDE ("Boa candidata"): Atende a todos os critérios essenciais e não apresenta condições de alerta.
- *    - AMARELO ("Avalie com atenção"): Próximo de algum limite, nota passageiro abaixo ou dados parciais.
- *    - VERMELHO ("Fora dos seus critérios"): Falha em pelo menos um critério financeiro essencial.
- *    - INSUFFICIENT_DATA: Quando faltam valor, distância ou tempo para cálculo confiável.
+// ========================================================
+// Módulo de Combustível e Rentabilidade (Lucro no Volante 3.0)
+// ========================================================
+
+/**
+ * Converte quilômetros percorridos em litros estimados de combustível
+ * Fórmula: Litros estimados = quilômetros percorridos ÷ consumo médio em km/l
  */
-export function evaluateRideOffer(
-  input: RideOfferInput,
-  settings: TrafficLightSettings,
-  defaultCostPerKm?: number | null
-): RideEvaluationResult {
-  const fare = Math.max(0, Number(input.estimatedFare) || 0);
+export function calculateEstimatedLiters(km: number, consumptionKmL: number): number {
+  const safeKm = Math.max(0, Number(km) || 0);
+  const safeConsumption = Math.max(0, Number(consumptionKmL) || 0);
+  if (safeConsumption <= 0 || safeKm <= 0) return 0;
+  return round2(safeKm / safeConsumption);
+}
 
-  // Calcula distância efetiva sem duplicar:
-  // Se informados pickup e trip explicitamente, soma-os; senão usa totalDistanceKm
-  let effectiveDistanceKm = 0;
-  if (
-    input.pickupDistanceKm !== undefined &&
-    input.pickupDistanceKm > 0 &&
-    input.tripDistanceKm !== undefined &&
-    input.tripDistanceKm > 0
-  ) {
-    effectiveDistanceKm = round2(input.pickupDistanceKm + input.tripDistanceKm);
-  } else {
-    effectiveDistanceKm = round2(Math.max(0, Number(input.totalDistanceKm) || 0));
-  }
+/**
+ * Calcula o custo estimado de combustível em reais
+ * Fórmula: Gasto estimado de combustível = litros estimados × preço por litro
+ */
+export function calculateEstimatedFuelCost(
+  km: number,
+  consumptionKmL: number,
+  fuelPricePerLiter: number
+): number {
+  const liters = calculateEstimatedLiters(km, consumptionKmL);
+  const safePrice = Math.max(0, Number(fuelPricePerLiter) || 0);
+  return round2(liters * safePrice);
+}
 
-  // Calcula duração efetiva em minutos
-  let effectiveDurationMinutes = 0;
-  if (
-    input.pickupDurationMinutes !== undefined &&
-    input.pickupDurationMinutes > 0 &&
-    input.tripDurationMinutes !== undefined &&
-    input.tripDurationMinutes > 0
-  ) {
-    effectiveDurationMinutes = round2(input.pickupDurationMinutes + input.tripDurationMinutes);
-  } else {
-    effectiveDurationMinutes = round2(Math.max(0, Number(input.totalDurationMinutes) || 0));
-  }
+/**
+ * Calcula o custo de combustível por quilômetro
+ * Fórmula: Custo de combustível por km = preço por litro ÷ consumo médio em km/l
+ */
+export function calculateFuelCostPerKm(
+  fuelPricePerLiter: number,
+  consumptionKmL: number
+): number | null {
+  const safePrice = Math.max(0, Number(fuelPricePerLiter) || 0);
+  const safeConsumption = Math.max(0, Number(consumptionKmL) || 0);
+  if (safeConsumption <= 0 || safePrice <= 0) return null;
+  return round2(safePrice / safeConsumption);
+}
 
-  // Custo por km a aplicar (override do usuário -> custo real histórico -> R$ 1,00/km padrão)
-  const costPerKmToUse =
-    settings.costPerKmOverride && settings.costPerKmOverride > 0
-      ? settings.costPerKmOverride
-      : defaultCostPerKm && defaultCostPerKm > 0
-      ? defaultCostPerKm
-      : 1.0;
+/**
+ * Executa a análise completa de combustível para um período de registros
+ * 
+ * REGRA RIGOROSA DE PRECISÃO FINANCEIRA:
+ * - Se o motorista já registrou despesas reais de combustível no período (fuelCost > 0),
+ *   esse valor é utilizado no cálculo contábil oficial (actualNetProfit).
+ * - A estimativa baseada em km/l é apresentada separadamente para auditoria/comparação.
+ * - JAMAIS soma a estimativa com a despesa real (ausência de dupla contagem).
+ * - Se não houver combustível lançado, permite estimar o resultado identificando-o claramente.
+ */
+export function calculateFuelPeriodAnalysis(
+  records: DailyRecord[],
+  vehicleConfig: VehicleConfig
+): FuelPeriodAnalysis {
+  let totalKm = 0;
+  let totalRevenue = 0;
+  let totalRecordedFuel = 0;
+  let totalRental = 0;
+  let totalOther = 0;
+  let totalHoursWorked = 0;
 
-  const extraCosts = Math.max(0, Number(input.tollOrExtraCosts) || 0);
-
-  // Verificação de dados insuficientes
-  if (fare <= 0 || effectiveDistanceKm <= 0 || effectiveDurationMinutes <= 0) {
-    return {
-      status: 'insufficient_data',
-      statusLabel: 'Dados insuficientes',
-      statusSummary:
-        'Preencha o valor da corrida, a distância total e o tempo estimado para uma avaliação financeira confiável.',
-      grossRevenuePerKm: null,
-      grossRevenuePerHour: null,
-      estimatedOperatingCost: 0,
-      estimatedNetProfit: 0,
-      estimatedNetProfitPerKm: null,
-      estimatedNetProfitPerHour: null,
-      netMarginPercent: null,
-      effectiveDistanceKm,
-      effectiveDurationMinutes,
-      criteria: [],
-      evaluatedAt: new Date().toISOString(),
-    };
-  }
-
-  // Cálculos financeiros
-  const durationHours = effectiveDurationMinutes / 60;
-  const estimatedOperatingCost = round2(costPerKmToUse * effectiveDistanceKm + extraCosts);
-  const estimatedNetProfit = round2(fare - estimatedOperatingCost);
-
-  const grossRevenuePerKm = round2(fare / effectiveDistanceKm);
-  const grossRevenuePerHour = round2(fare / durationHours);
-  const estimatedNetProfitPerKm = round2(estimatedNetProfit / effectiveDistanceKm);
-  const estimatedNetProfitPerHour = round2(estimatedNetProfit / durationHours);
-  const netMarginPercent = round2((estimatedNetProfit / fare) * 100);
-
-  // Tolerâncias de acordo com o modo
-  const tolerance = settings.mode === 'flexible' ? 0.9 : settings.mode === 'conservative' ? 1.05 : 1.0;
-
-  const targetGrossPerKm = settings.minGrossPerKm * tolerance;
-  const targetGrossPerHour = settings.minGrossPerHour * tolerance;
-  const targetNetPerKm = settings.minNetProfitPerKm * tolerance;
-  const targetNetPerHour = settings.minNetProfitPerHour * tolerance;
-
-  // Avaliação dos critérios individuais
-  const criteria: RideCriteriaCheck[] = [];
-
-  // 1. Ganho Bruto por Km
-  const grossKmPass = grossRevenuePerKm >= targetGrossPerKm;
-  const grossKmClose = grossRevenuePerKm >= targetGrossPerKm * 0.9;
-  criteria.push({
-    id: 'gross_per_km',
-    name: 'Ganho Bruto por KM',
-    actualValue: formatPerKm(grossRevenuePerKm),
-    targetValue: `≥ ${formatPerKm(targetGrossPerKm)}`,
-    status: grossKmPass ? 'pass' : grossKmClose ? 'warning' : 'fail',
-    isEssential: true,
-    explanation: grossKmPass
-      ? 'Valor por km acima do mínimo configurado.'
-      : `Abaixo da sua meta mínima de ${formatPerKm(targetGrossPerKm)}.`,
-  });
-
-  // 2. Lucro Líquido por KM
-  const netKmPass = estimatedNetProfitPerKm >= targetNetPerKm;
-  const netKmClose = estimatedNetProfitPerKm >= targetNetPerKm * 0.85;
-  criteria.push({
-    id: 'net_per_km',
-    name: 'Lucro Líquido por KM',
-    actualValue: formatPerKm(estimatedNetProfitPerKm),
-    targetValue: `≥ ${formatPerKm(targetNetPerKm)}`,
-    status: netKmPass ? 'pass' : netKmClose ? 'warning' : 'fail',
-    isEssential: true,
-    explanation: netKmPass
-      ? 'Lucro limpo por km cobre folgadamente o desgaste e combustível.'
-      : `Lucro líquido por km insuficiente considerando seu custo de ${formatPerKm(costPerKmToUse)}.`,
-  });
-
-  // 3. Lucro Líquido por Hora
-  const netHourPass = estimatedNetProfitPerHour >= targetNetPerHour;
-  const netHourClose = estimatedNetProfitPerHour >= targetNetPerHour * 0.88;
-  criteria.push({
-    id: 'net_per_hour',
-    name: 'Lucro Líquido por Hora',
-    actualValue: formatPerHour(estimatedNetProfitPerHour),
-    targetValue: `≥ ${formatPerHour(targetNetPerHour)}`,
-    status: netHourPass ? 'pass' : netHourClose ? 'warning' : 'fail',
-    isEssential: true,
-    explanation: netHourPass
-      ? `Excelente rendimento de ${formatPerHour(estimatedNetProfitPerHour)} no tempo previsto.`
-      : `Fica abaixo da sua meta horária de ${formatPerHour(targetNetPerHour)}.`,
-  });
-
-  // 4. Distância até o passageiro (se informada)
-  if (input.pickupDistanceKm !== undefined && input.pickupDistanceKm > 0) {
-    const pickupDistPass = input.pickupDistanceKm <= settings.maxPickupDistanceKm;
-    const pickupDistClose = input.pickupDistanceKm <= settings.maxPickupDistanceKm * 1.25;
-    criteria.push({
-      id: 'pickup_distance',
-      name: 'Deslocamento até Passageiro',
-      actualValue: `${input.pickupDistanceKm} km`,
-      targetValue: `≤ ${settings.maxPickupDistanceKm} km`,
-      status: pickupDistPass ? 'pass' : pickupDistClose ? 'warning' : 'fail',
-      isEssential: false,
-      explanation: pickupDistPass
-        ? 'Passageiro próximo, pouco tempo morto.'
-        : `Buscar passageiro a ${input.pickupDistanceKm} km consome combustível não remunerado.`,
-    });
-  }
-
-  // 5. Tempo até o passageiro (se informado)
-  if (input.pickupDurationMinutes !== undefined && input.pickupDurationMinutes > 0) {
-    const pickupTimePass = input.pickupDurationMinutes <= settings.maxPickupTimeMinutes;
-    const pickupTimeClose = input.pickupDurationMinutes <= settings.maxPickupTimeMinutes * 1.3;
-    criteria.push({
-      id: 'pickup_time',
-      name: 'Tempo de Chegada',
-      actualValue: `${input.pickupDurationMinutes} min`,
-      targetValue: `≤ ${settings.maxPickupTimeMinutes} min`,
-      status: pickupTimePass ? 'pass' : pickupTimeClose ? 'warning' : 'fail',
-      isEssential: false,
-      explanation: pickupTimePass
-        ? 'Tempo de chegada ágil.'
-        : `Tempo até o passageiro (${input.pickupDurationMinutes} min) pode reduzir seus ganhos/hora.`,
-    });
-  }
-
-  // 6. Nota do passageiro (critério secundário configurável, não reprova se não informado)
-  if (input.passengerRating !== undefined && input.passengerRating > 0) {
-    const ratingPass = input.passengerRating >= settings.minPassengerRating;
-    const ratingClose = input.passengerRating >= settings.minPassengerRating - 0.1;
-    criteria.push({
-      id: 'passenger_rating',
-      name: 'Nota do Passageiro',
-      actualValue: input.passengerRating.toFixed(2),
-      targetValue: `≥ ${settings.minPassengerRating.toFixed(2)}`,
-      status: ratingPass ? 'pass' : ratingClose ? 'warning' : 'fail',
-      isEssential: false,
-      explanation: ratingPass
-        ? 'Passageiro bem avaliado.'
-        : `Nota do passageiro (${input.passengerRating.toFixed(2)}) abaixo da sua preferência de ${settings.minPassengerRating.toFixed(2)}.`,
-    });
-  }
-
-  // Decisão do Semáforo com regras transparentes:
-  // Se falhar em critério financeiro essencial -> VERMELHO
-  const hasEssentialFail = criteria.some((c) => c.isEssential && c.status === 'fail');
-  const hasWarning = criteria.some((c) => c.status === 'warning' || (!c.isEssential && c.status === 'fail'));
-
-  let status: TrafficLightResult = 'green';
-  let statusLabel = 'Boa candidata';
-  let statusSummary = '';
-
-  if (estimatedNetProfit <= 0 || hasEssentialFail) {
-    status = 'red';
-    statusLabel = 'Fora dos seus critérios';
-
-    const failedEssentials = criteria.filter((c) => c.isEssential && c.status === 'fail');
-    if (estimatedNetProfit <= 0) {
-      statusSummary = `Esta corrida gera prejuízo estimado de ${formatCurrency(Math.abs(estimatedNetProfit))} considerando o custo de ${formatPerKm(costPerKmToUse)}.`;
-    } else if (failedEssentials.length > 0) {
-      statusSummary = `Esta corrida não atende a critérios essenciais: ${failedEssentials.map((c) => c.name.toLowerCase()).join(' e ')}.`;
-    } else {
-      statusSummary = 'Esta corrida fica abaixo dos seus limites mínimos configurados.';
+  for (const r of records) {
+    totalKm += Math.max(0, Number(r.mileageKm) || 0);
+    totalRevenue += Math.max(0, Number(r.grossRevenue) || 0);
+    totalRecordedFuel += Math.max(0, Number(r.fuelCost) || 0);
+    totalRental += Math.max(0, Number(r.vehicleRentalCost) || 0);
+    totalOther += Math.max(0, Number(r.otherCosts) || 0);
+    if (r.hoursWorked && r.hoursWorked > 0) {
+      totalHoursWorked += Number(r.hoursWorked);
     }
-  } else if (hasWarning) {
-    status = 'yellow';
-    statusLabel = 'Avalie com atenção';
-
-    const warnings = criteria.filter((c) => c.status === 'warning' || (!c.isEssential && c.status === 'fail'));
-    if (warnings.length > 0) {
-      statusSummary = `Lucro financeiro viável (${formatPerHour(estimatedNetProfitPerHour)}), mas fique atento a: ${warnings.map((w) => w.name.toLowerCase()).join(', ')}.`;
-    } else {
-      statusSummary = 'Corrida próxima dos seus limites mínimos. Avalie as condições de trânsito e destino.';
-    }
-  } else {
-    status = 'green';
-    statusLabel = 'Boa candidata';
-    statusSummary = `Atende plenamente aos seus critérios com ${formatPerHour(estimatedNetProfitPerHour)} de lucro/hora e margem de ${netMarginPercent}%.`;
   }
+
+  totalKm = round2(totalKm);
+  totalRevenue = round2(totalRevenue);
+  totalRecordedFuel = round2(totalRecordedFuel);
+  totalRental = round2(totalRental);
+  totalOther = round2(totalOther);
+  totalHoursWorked = round2(totalHoursWorked);
+
+  const totalOtherCosts = round2(totalRental + totalOther);
+  const hasRecordedFuel = totalRecordedFuel > 0;
+
+  // Cálculos de estimativa por km/l
+  const estimatedLiters = calculateEstimatedLiters(totalKm, vehicleConfig.consumptionKmL);
+  const estimatedFuelCost = calculateEstimatedFuelCost(
+    totalKm,
+    vehicleConfig.consumptionKmL,
+    vehicleConfig.fuelPricePerLiter
+  );
+  const fuelCostPerKm = calculateFuelCostPerKm(
+    vehicleConfig.fuelPricePerLiter,
+    vehicleConfig.consumptionKmL
+  );
+
+  // Combustível efetivo para o resultado estimado:
+  // Se houver combustível real lançado, o resultado oficial usa o real.
+  // Se não houver nada lançado, projeta usando a estimativa.
+  const effectiveFuelCost = hasRecordedFuel ? totalRecordedFuel : estimatedFuelCost;
+  const isEstimatedOnly = !hasRecordedFuel && estimatedFuelCost > 0;
+
+  // Lucro líquido contábil (oficial com despesas reais)
+  const actualNetProfit = round2(totalRevenue - (totalRecordedFuel + totalOtherCosts));
+
+  // Lucro líquido estimado (usando estimativa quando despesa real não foi lançada)
+  const estimatedNetProfit = round2(totalRevenue - (effectiveFuelCost + totalOtherCosts));
+
+  const estimatedNetProfitPerKm = totalKm > 0 ? round2(estimatedNetProfit / totalKm) : null;
+  const estimatedNetProfitPerHour = totalHoursWorked > 0 ? round2(estimatedNetProfit / totalHoursWorked) : null;
+  const grossRevenuePerHour = totalHoursWorked > 0 ? round2(totalRevenue / totalHoursWorked) : null;
 
   return {
-    status,
-    statusLabel,
-    statusSummary,
-    grossRevenuePerKm,
-    grossRevenuePerHour,
-    estimatedOperatingCost,
+    totalKm,
+    totalRevenue,
+    totalRecordedFuel,
+    hasRecordedFuel,
+    estimatedLiters,
+    estimatedFuelCost,
+    fuelCostPerKm,
+    effectiveFuelCost,
+    isEstimatedOnly,
+    totalOtherCosts,
+    actualNetProfit,
     estimatedNetProfit,
     estimatedNetProfitPerKm,
     estimatedNetProfitPerHour,
-    netMarginPercent,
-    effectiveDistanceKm,
-    effectiveDurationMinutes,
-    criteria,
-    evaluatedAt: new Date().toISOString(),
+    grossRevenuePerHour,
+    totalHoursWorked,
   };
 }
